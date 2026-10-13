@@ -1,18 +1,39 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import React from 'react';
+import { ActivityIndicator, View } from 'react-native';
+import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { AuthProvider, useAuth } from '../context/AuthContext';
+import { colors } from '../theme';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+function RootNavigator() {
+  const { user, loading } = useAuth();
 
-SplashScreen.preventAutoHideAsync();
+  if (loading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </ThemeProvider>
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Protected guard={!user}>
+        <Stack.Screen name="login" options={{ title: 'Sign in | HB+' }} />
+      </Stack.Protected>
+
+      <Stack.Protected guard={!!user}>
+        <Stack.Screen name="dashboard" options={{ title: 'Dashboard | HB+' }} />
+      </Stack.Protected>
+    </Stack>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <StatusBar style="dark" />
+      <RootNavigator />
+    </AuthProvider>
   );
 }
