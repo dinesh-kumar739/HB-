@@ -1,56 +1,84 @@
-# Welcome to your Expo app 👋
+# HB+ Auth
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Cross-platform app (Expo + React Native + React Native Web) with Google login restricted to `@hbplus.fit` email accounts. One codebase runs on web, Android and iOS.
 
-## Get started
+Live demo: 
 
-1. Install dependencies
+## Tech stack
+React Native (Expo), Expo Router, React Native Web, Google OAuth 2.0, Firebase Authentication, Cloud Firestore.
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+## Folder structure
 ```
+src/
+  app/                  routes: _layout.tsx, index.tsx, login.tsx, dashboard.tsx
+  components/           GoogleButton, HoverCard, Logo
+  config/firebase.ts    Firebase setup
+  context/AuthContext.tsx   login, logout, domain check, role
+  services/domain.ts    domain validation
+  services/useGoogleNative*.ts   Google sign-in for mobile
+  theme/index.ts        colors and spacing
+```
+Firebase Authentication and Firestore act as the backend, so no custom server is required.
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Setup
+1. `npm install`
+2. Create a Firebase project, enable Authentication with the Google provider, and create a Firestore database.
+3. Add a Web app in Firebase and copy its config values.
+4. Create a `.env` file in the project root:
+```
+EXPO_PUBLIC_ALLOWED_DOMAIN=hbplus.fit
+EXPO_PUBLIC_FIREBASE_API_KEY=
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
+EXPO_PUBLIC_FIREBASE_APP_ID=
+```
+5. In Firebase Authentication > Settings > Authorized domains, add `localhost` and the deployed domain.
+6. Publish the Firestore rules given below.
+7. Run `npx expo start` and press `w` for web.
 
-### Other setup steps
+## Authentication flow
+1. The user taps Login with Google and picks an account in the Google popup.
+2. Google authenticates the user and returns to Firebase Authentication.
+3. `onAuthStateChanged` in `AuthContext` receives the user and checks the email domain.
+4. If the domain is allowed, the user document is created or updated in Firestore, the role is loaded and the user is taken to the dashboard.
+5. Otherwise the user is signed out immediately and sees: "Access restricted. Please login using your official domain email."
+6. Logout signs the user out and the dashboard becomes unreachable again.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## How domain restriction works
+- `isAllowedEmail()` in `src/services/domain.ts` compares the exact text after the last `@` with `hbplus.fit`.
+- The `hd` parameter sent to Google only filters the account chooser and is not trusted.
+- Firestore rules check `request.auth.token.email` and `email_verified` on the server side, so an account outside the domain cannot read or write data even if the client is modified.
 
-## Learn more
+## Protected routes
+`Stack.Protected` in `src/app/_layout.tsx` exposes `/login` only to logged-out users and `/dashboard` only to logged-in users. Opening `/dashboard` directly without a session redirects to the login page.
 
-To learn more about developing your project with Expo, look at the following resources:
+## Roles
+New users are stored in `users/{uid}` with `role: "user"`. An admin is created by changing the `role` field to `admin` in the Firebase console. Firestore rules stop users from changing their own role. Admins see an extra admin panel on the dashboard.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Token handling
+Tokens are managed by the Firebase SDK, which stores the session and refreshes it automatically. The app never stores tokens manually and never logs them. No secrets are committed; configuration is read from `.env`, which is git-ignored. Access is enforced on the client (route guards and domain check) and on the server side (Firestore rules). A custom backend that verifies ID tokens with `firebase-admin` and issues HttpOnly cookies can be added for stricter enforcement.
 
-## Join the community
+## Platform status
+The web version is deployed and tested. The mobile Google sign-in code is included (`useGoogleNative.native.ts`) but needs Android and iOS OAuth client IDs and a development build, and has not been tested on a device.
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Firestore rules
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function allowedDomain() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.matches('.*@hbplus[.]fit$');
+    }
+    match /users/{uid} {
+      allow read: if allowedDomain() && request.auth.uid == uid;
+      allow create: if allowedDomain() && request.auth.uid == uid && request.resource.data.role == 'user';
+      allow update: if allowedDomain() && request.auth.uid == uid && request.resource.data.role == resource.data.role;
+      allow delete: if false;
+    }
+  }
+}
+```
