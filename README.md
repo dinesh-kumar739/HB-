@@ -2,7 +2,7 @@
 
 Cross-platform app (Expo + React Native + React Native Web) with Google login restricted to `@hbplus.fit` email accounts. One codebase runs on web, Android and iOS.
 
-Live demo: 
+Live demo: https://hbplush.netlify.app
 
 ## Tech stack
 React Native (Expo), Expo Router, React Native Web, Google OAuth 2.0, Firebase Authentication, Cloud Firestore.
